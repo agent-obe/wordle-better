@@ -7,7 +7,7 @@ const state = {
   draftGuess: '',
   draftFeedback: Array(5).fill(FEEDBACK.ABSENT),
   history: [],
-  message: 'Type a guess, mark the colors, then submit.',
+  message: 'Type a guess, tap the tiles, submit.',
   analysis: {
     candidates: ANSWERS.slice(),
     suggestions: [],
@@ -40,7 +40,7 @@ worker.onmessage = (event) => {
   if (requestId !== analysisRequestId) return;
   state.analysis = { candidates, suggestions, solved, loading: false, durationMs, error: '' };
   if (!state.history.length) {
-    state.message = 'Ready. Start with a strong opener or enter your real Wordle history.';
+    state.message = 'Ready. Start with a strong opener or enter your real history.';
   }
   renderAnalysis();
   renderStatus();
@@ -84,7 +84,7 @@ function resetGame(nextMode = state.mode) {
   state.draftGuess = '';
   state.draftFeedback = Array(5).fill(FEEDBACK.ABSENT);
   state.history = [];
-  setMessage(nextMode === 'assistant' ? 'Assistant mode reset.' : 'Fresh simulator round. Hidden answer loaded. Very mysterious.');
+  setMessage(nextMode === 'assistant' ? 'Assistant reset.' : 'Fresh simulator round loaded. The secret word is behaving.' );
   renderStaticState();
   requestAnalysis();
   focusGuessInput();
@@ -105,6 +105,7 @@ function cycleFeedback(index) {
   if (state.mode !== 'assistant') return;
   state.draftFeedback[index] = feedbackCycle[state.draftFeedback[index]];
   renderDraft();
+  focusGuessInput(true);
 }
 
 function addEntry() {
@@ -174,34 +175,26 @@ function keyHandler(event) {
 
 document.addEventListener('keydown', keyHandler);
 
+document.addEventListener('dblclick', (event) => {
+  if (event.target.closest('[data-index]')) {
+    event.preventDefault();
+  }
+});
+
 function tileClass(letterState) {
   return `tile tile--${letterState}`;
 }
 
 function historyRow(entry, index) {
   return `
-    <article class="history-card">
-      <div>
-        <span class="history-index">#${index + 1}</span>
+    <article class="history-row-card">
+      <div class="history-row-head">
+        <span class="history-index">${index + 1}</span>
         <strong>${entry.guess.toUpperCase()}</strong>
+        <span class="history-pattern">${entry.feedback.toUpperCase()}</span>
       </div>
-      <div class="history-row">${entry.guess.split('').map((letter, letterIndex) => `<button class="tile tile--${entry.feedback[letterIndex]}" disabled>${letter}</button>`).join('')}</div>
+      <div class="history-tiles">${entry.guess.split('').map((letter, letterIndex) => `<button class="tile tile--${entry.feedback[letterIndex]}" disabled>${letter}</button>`).join('')}</div>
     </article>`;
-}
-
-function keyboardKey(letter, candidates) {
-  let status = 'unused';
-  for (const entry of state.history) {
-    for (let i = 0; i < 5; i += 1) {
-      if (entry.guess[i] !== letter) continue;
-      if (entry.feedback[i] === FEEDBACK.CORRECT) status = 'correct';
-      else if (entry.feedback[i] === FEEDBACK.PRESENT && status !== 'correct') status = 'present';
-      else if (entry.feedback[i] === FEEDBACK.ABSENT && status === 'unused') status = 'absent';
-    }
-  }
-  if (status === 'unused' && candidates.some((word) => word.includes(letter))) status = 'hint';
-  const active = state.draftGuess.includes(letter) ? ' key--active' : '';
-  return `<button class="key key--${status}${active}" data-letter="${letter}">${letter}</button>`;
 }
 
 function statsMarkup() {
@@ -216,11 +209,35 @@ function statsMarkup() {
   return items.map(([label, value]) => `<div class="stat"><span class="stat-label">${label}</span><strong>${value}</strong></div>`).join('');
 }
 
+function heroSuggestionMarkup() {
+  const { candidates, suggestions, loading, error } = state.analysis;
+  if (error) return `<div class="empty-state empty-state--error">${error}</div>`;
+  if (loading) return '<div class="focus-suggestion focus-suggestion--loading">Re-ranking suggestions…</div>';
+  if (!suggestions.length) return '<div class="focus-suggestion focus-suggestion--loading">No suggestion yet. Add a valid guess and the list will sharpen.</div>';
+  const best = suggestions[0];
+  return `
+    <article class="focus-suggestion">
+      <div>
+        <p class="focus-label">Best next guess</p>
+        <div class="focus-word-row">
+          <strong class="focus-word">${best.word}</strong>
+          <button class="primary primary--compact" data-fill="${best.word}">Use guess</button>
+        </div>
+        <p class="focus-summary">${summarizeSuggestion(best, candidates.length)}</p>
+      </div>
+      <div class="focus-metrics">
+        <span>${best.entropy.toFixed(2)} bits</span>
+        <span>${best.expectedRemaining.toFixed(2)} avg left</span>
+        <span>${best.isCandidate ? 'candidate' : 'probe'}</span>
+      </div>
+    </article>`;
+}
+
 function suggestionsMarkup() {
   const { candidates, suggestions, loading, error } = state.analysis;
   if (error) return `<div class="empty-state empty-state--error">${error}</div>`;
-  if (loading) return '<div class="empty-state">Re-ranking suggestions…</div>';
-  if (!suggestions.length) return '<div class="empty-state">No suggestions yet. Add a valid guess to narrow the field.</div>';
+  if (loading) return '<div class="empty-state">Refreshing ranked list…</div>';
+  if (!suggestions.length) return '<div class="empty-state">No suggestions yet.</div>';
   return `
     <div class="suggestion-list">
       ${suggestions.map((entry, index) => `
@@ -243,82 +260,88 @@ function candidateMarkup() {
   if (!candidates.length) return '<div class="empty-state empty-state--error">No answers match this history. Check the feedback pattern.</div>';
   const preview = candidates.slice(0, 24);
   return `
-    <div class="candidate-summary">
-      <p><strong>${candidates.length.toLocaleString()}</strong> matching answers.</p>
-      <p class="subtle">Showing the first ${preview.length}. Use the ranked list first; do not drown in chips.</p>
-    </div>
-    <div class="candidate-list">${preview.map((word) => `<span>${word}</span>`).join('')}</div>`;
+    <details class="candidate-details">
+      <summary>
+        <span><strong>${candidates.length.toLocaleString()}</strong> matching answers</span>
+        <span class="subtle">preview ${preview.length}</span>
+      </summary>
+      <div class="candidate-list">${preview.map((word) => `<span>${word}</span>`).join('')}</div>
+    </details>`;
 }
 
 function renderFrame() {
-  const intro = state.mode === 'assistant'
-    ? 'Paste your real Wordle attempts here: type the guess, click tiles to set gray / yellow / green, submit, repeat.'
-    : 'Simulator mode grades guesses for you against a hidden answer, so you can test the solver without juggling feedback.';
-
   app.innerHTML = `
     <main class="shell">
-      <section class="hero card">
-        <div>
+      <section class="hero">
+        <div class="hero-copy">
           <p class="eyebrow">Wordle Better</p>
-          <h1>Fast solver, less sludge.</h1>
-          <p class="subtle hero-copy">Entropy-ranked suggestions, exact duplicate-letter handling, and a UI that stops making your browser do cardio on every keystroke.</p>
-          <p class="helper helper--hero" id="intro-copy">${intro}</p>
+          <h1>Suggestion first. Everything else quieter.</h1>
+          <p class="subtle">A stripped-down solver with strong guesses up top, compact input below, and no plastic dashboard cosplay.</p>
         </div>
-        <div class="hero-side">
+        <div class="hero-controls">
           <div class="mode-switch" id="mode-switch"></div>
           <div class="status-badge" id="status-badge"></div>
         </div>
       </section>
 
-      <section class="grid">
-        <div class="stack">
+      <section class="layout">
+        <section class="card card--suggestions">
+          <div class="card-head card-head--focus">
+            <div>
+              <p class="section-kicker">Suggestions</p>
+              <h2>Top line</h2>
+            </div>
+            <span id="suggestion-count"></span>
+          </div>
+          <div class="stats-grid" id="stats-grid"></div>
+          <div id="hero-suggestion"></div>
+          <div id="suggestions"></div>
+        </section>
+
+        <section class="rail">
           <section class="card card--input">
-            <div class="card-head">
-              <h2 id="input-title"></h2>
-              <div class="actions">
+            <div class="card-head card-head--input">
+              <div>
+                <p class="section-kicker">Input</p>
+                <h2 id="input-title"></h2>
+              </div>
+              <div class="actions actions--tight">
                 <button class="ghost" data-action="undo">Undo</button>
                 <button class="ghost" data-action="reset">Reset</button>
                 <span id="reveal-slot"></span>
               </div>
             </div>
-            <label class="field-label" for="guess-input">Guess</label>
-            <input id="guess-input" class="guess-input" maxlength="5" placeholder="slate" autocomplete="off" autocapitalize="none" spellcheck="false" />
+            <p class="helper" id="intro-copy"></p>
+            <div class="composer">
+              <input id="guess-input" class="guess-input" maxlength="5" placeholder="slate" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Guess" />
+              <button class="primary" data-action="submit">Submit</button>
+            </div>
             <div class="tile-row tile-row--interactive" id="draft-tiles"></div>
-            <div class="feedback-legend">
-              <span><i class="legend-swatch legend-swatch--b"></i>Absent</span>
-              <span><i class="legend-swatch legend-swatch--y"></i>Present</span>
-              <span><i class="legend-swatch legend-swatch--g"></i>Correct</span>
-            </div>
-            <div class="actions actions--bottom">
-              <button class="primary" data-action="submit">Submit guess</button>
-              <p class="helper">Keyboard works: type letters, Backspace deletes, Enter submits.</p>
-            </div>
+            <p class="helper helper--micro" id="feedback-helper"></p>
           </section>
 
-          <section class="card">
-            <div class="card-head"><h2>History</h2><span id="history-count"></span></div>
+          <section class="card card--secondary">
+            <div class="card-head">
+              <div>
+                <p class="section-kicker">History</p>
+                <h2>Guesses</h2>
+              </div>
+              <span id="history-count"></span>
+            </div>
             <div class="history-list" id="history-list"></div>
           </section>
 
-          <section class="card">
-            <div class="card-head"><h2>Keyboard</h2><span id="keyboard-count"></span></div>
-            <div class="keyboard" id="keyboard"></div>
-          </section>
-        </div>
-
-        <div class="stack">
-          <section class="card stats-grid" id="stats-grid"></section>
-
-          <section class="card">
-            <div class="card-head"><h2>Top suggestions</h2><span id="suggestion-count"></span></div>
-            <div id="suggestions"></div>
-          </section>
-
-          <section class="card">
-            <div class="card-head"><h2>Candidate snapshot</h2><span id="candidate-count"></span></div>
+          <section class="card card--secondary">
+            <div class="card-head">
+              <div>
+                <p class="section-kicker">Candidates</p>
+                <h2>Details</h2>
+              </div>
+              <span id="candidate-count"></span>
+            </div>
             <div id="candidate-panel"></div>
           </section>
-        </div>
+        </section>
       </section>
     </main>`;
 
@@ -330,11 +353,11 @@ function renderFrame() {
     revealSlot: app.querySelector('#reveal-slot'),
     guessInput: app.querySelector('#guess-input'),
     draftTiles: app.querySelector('#draft-tiles'),
+    feedbackHelper: app.querySelector('#feedback-helper'),
     historyCount: app.querySelector('#history-count'),
     historyList: app.querySelector('#history-list'),
-    keyboardCount: app.querySelector('#keyboard-count'),
-    keyboard: app.querySelector('#keyboard'),
     statsGrid: app.querySelector('#stats-grid'),
+    heroSuggestion: app.querySelector('#hero-suggestion'),
     suggestionCount: app.querySelector('#suggestion-count'),
     suggestions: app.querySelector('#suggestions'),
     candidateCount: app.querySelector('#candidate-count'),
@@ -349,14 +372,17 @@ function renderStatus() {
 
 function renderModeControls() {
   const intro = state.mode === 'assistant'
-    ? 'Paste your real Wordle attempts here: type the guess, click tiles to set gray / yellow / green, submit, repeat.'
-    : 'Simulator mode grades guesses for you against a hidden answer, so you can test the solver without juggling feedback.';
+    ? 'Type the guess, tap tiles to cycle gray/yellow/green, press Enter to log it.'
+    : 'Simulator quietly scores each guess against a hidden answer so you can test lines fast.';
   refs.introCopy.textContent = intro;
   refs.modeSwitch.innerHTML = `
     <button class="pill ${state.mode === 'assistant' ? 'pill--active' : ''}" data-mode="assistant">Assistant</button>
     <button class="pill ${state.mode === 'simulator' ? 'pill--active' : ''}" data-mode="simulator">Simulator</button>`;
   refs.inputTitle.textContent = state.mode === 'assistant' ? 'Enter guess + feedback' : 'Play against hidden answer';
   refs.revealSlot.innerHTML = state.mode === 'simulator' ? '<button class="ghost" data-action="reveal">Reveal</button>' : '';
+  refs.feedbackHelper.textContent = state.mode === 'assistant'
+    ? 'Tap a tile to cycle feedback. Touch actions are locked down to avoid the usual mobile zoom nonsense.'
+    : 'Feedback tiles are display-only here; the simulator fills them in for you.';
 }
 
 function renderDraft() {
@@ -369,7 +395,7 @@ function renderDraft() {
   refs.draftTiles.innerHTML = Array.from({ length: 5 }, (_, index) => {
     const letter = state.draftGuess[index] || '';
     const status = state.mode === 'assistant' ? state.draftFeedback[index] : (letter ? FEEDBACK.ABSENT : 'empty');
-    const label = state.mode === 'assistant' ? `${feedbackLabel[state.draftFeedback[index]]}. Click to change.` : 'Simulator mode auto-grades.';
+    const label = state.mode === 'assistant' ? `${feedbackLabel[state.draftFeedback[index]]}. Tap to change.` : 'Simulator mode auto-grades.';
     return `<button class="${tileClass(status)}" data-index="${index}" ${state.mode === 'assistant' ? '' : 'disabled'} aria-label="${label}">${letter}</button>`;
   }).join('');
 }
@@ -378,23 +404,16 @@ function renderHistory() {
   refs.historyCount.textContent = `${state.history.length} turns`;
   refs.historyList.innerHTML = state.history.length
     ? state.history.map(historyRow).join('')
-    : '<div class="empty-state">No guesses yet. Start with something broad like SLATE, CRANE, or your usual ritual sacrifice.</div>';
-}
-
-function renderKeyboard() {
-  const { candidates } = state.analysis;
-  refs.keyboardCount.textContent = `${candidates.length.toLocaleString()} matches`;
-  refs.keyboard.innerHTML = `${['qwertyuiop', 'asdfghjkl', 'zxcvbnm'].map((row) => `<div class="keyboard-row">${row.split('').map((letter) => keyboardKey(letter, candidates)).join('')}</div>`).join('')}
-    <div class="keyboard-row keyboard-row--actions"><button class="key key--wide" data-action="backspace">⌫</button><button class="key key--wide key--enter" data-action="submit">Enter</button></div>`;
+    : '<div class="empty-state">No guesses yet. Open with something broad and let the solver do the fussy part.</div>';
 }
 
 function renderAnalysis() {
   refs.statsGrid.innerHTML = statsMarkup();
-  refs.suggestionCount.textContent = state.analysis.loading ? 'updating' : `${state.analysis.suggestions.length} shown`;
+  refs.heroSuggestion.innerHTML = heroSuggestionMarkup();
+  refs.suggestionCount.textContent = state.analysis.loading ? 'updating' : `${state.analysis.suggestions.length} ranked`;
   refs.suggestions.innerHTML = suggestionsMarkup();
-  refs.candidateCount.textContent = `${Math.min(state.analysis.candidates.length, 24)} previewed`;
+  refs.candidateCount.textContent = `${state.analysis.candidates.length.toLocaleString()} live`;
   refs.candidatePanel.innerHTML = candidateMarkup();
-  renderKeyboard();
 }
 
 function renderStaticState() {
@@ -402,27 +421,27 @@ function renderStaticState() {
   renderStatus();
   renderDraft();
   renderHistory();
-  renderKeyboard();
 }
 
 function bindEvents() {
   refs.guessInput.addEventListener('input', (event) => updateDraftGuess(event.target.value));
 
+  app.addEventListener('pointerdown', (event) => {
+    const tile = event.target.closest('[data-index]');
+    if (!tile) return;
+    event.preventDefault();
+  });
+
   app.addEventListener('click', (event) => {
     const target = event.target.closest('button');
     if (!target) return;
 
-    if (target.dataset.index) {
+    if (target.dataset.index !== undefined) {
       cycleFeedback(Number(target.dataset.index));
       return;
     }
     if (target.dataset.mode) {
       resetGame(target.dataset.mode);
-      return;
-    }
-    if (target.dataset.letter) {
-      updateDraftGuess(state.draftGuess + target.dataset.letter);
-      focusGuessInput(true);
       return;
     }
     if (target.dataset.fill) {
@@ -431,10 +450,6 @@ function bindEvents() {
     }
 
     switch (target.dataset.action) {
-      case 'backspace':
-        updateDraftGuess(state.draftGuess.slice(0, -1));
-        focusGuessInput(true);
-        break;
       case 'submit':
         addEntry();
         break;
