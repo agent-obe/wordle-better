@@ -36,7 +36,7 @@ describe('rankGuesses', () => {
   it('prefers viable st*** answers for constrained stale/ggbbb states', () => {
     const history = [{ guess: 'stale', feedback: 'ggbbb' }];
     const candidates = filterCandidates(WORDS, history);
-    const ranked = rankGuesses(candidates, WORDS, 8);
+    const ranked = rankGuesses(candidates, WORDS, 8, { history });
 
     expect(candidates.length).toBeGreaterThan(10);
     expect(ranked[0].isCandidate).toBe(true);
@@ -52,6 +52,25 @@ describe('rankGuesses', () => {
 
     expect(ranked[0].isCandidate).toBe(true);
     expect(ranked.every((entry) => candidates.includes(entry.word))).toBe(true);
+  });
+
+  it('keeps yellow letters in play for human-first suggestions', () => {
+    const history = [{ guess: 'crate', feedback: 'bbyyb' }];
+    const candidates = filterCandidates(WORDS, history);
+    const ranked = rankGuesses(candidates, WORDS, 8, { history });
+
+    expect(ranked[0].isCandidate).toBe(true);
+    expect(ranked.slice(0, 5).every((entry) => entry.isCandidate)).toBe(true);
+    expect(ranked.slice(0, 5).every((entry) => entry.word.includes('a') && entry.word.includes('t'))).toBe(true);
+  });
+
+  it('analyzePuzzle defaults to candidate suggestions once feedback reveals present letters', () => {
+    const history = [{ guess: 'crate', feedback: 'bbyyb' }];
+    const { candidates, suggestions } = analyzePuzzle(history, { limit: 6, answers: WORDS, allowed: WORDS });
+
+    expect(candidates.length).toBeGreaterThan(20);
+    expect(suggestions.every((entry) => candidates.includes(entry.word))).toBe(true);
+    expect(suggestions.slice(0, 5).every((entry) => entry.word.includes('a') && entry.word.includes('t'))).toBe(true);
   });
 });
 

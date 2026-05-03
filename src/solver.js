@@ -119,11 +119,69 @@ function constrainedState(candidates, frequencies) {
     || averagePositionalCertainty >= 0.86;
 }
 
-export function rankGuesses(candidates, allowed = ALLOWED_GUESSES, limit = 12) {
+function extractHistorySignal(history = []) {
+  const presentMinimums = {};
+  let hasKnownLetter = false;
+
+  for (const { guess, feedback } of history) {
+    const counts = {};
+    for (let i = 0; i < Math.min(guess.length, feedback.length, 5); i += 1) {
+      if (feedback[i] === FEEDBACK.CORRECT || feedback[i] === FEEDBACK.PRESENT) {
+        const letter = guess[i];
+        counts[letter] = (counts[letter] || 0) + 1;
+        hasKnownLetter = true;
+      }
+    }
+
+    for (const [letter, count] of Object.entries(counts)) {
+      presentMinimums[letter] = Math.max(presentMinimums[letter] || 0, count);
+    }
+  }
+
+  return { hasKnownLetter, presentMinimums };
+}
+
+function presentLetterCoverageScore(word, presentMinimums) {
+  let score = 0;
+  const counts = {};
+  for (const letter of word) counts[letter] = (counts[letter] || 0) + 1;
+
+  for (const [letter, minimum] of Object.entries(presentMinimums)) {
+    score += Math.min(counts[letter] || 0, minimum) * 3;
+  }
+
+  return score;
+}
+
+function candidateRankingScore(word, frequencies, total, presentMinimums) {
+  if (!total) return 0;
+
+  const seen = new Set();
+  let positional = 0;
+  let overall = 0;
+
+  for (let i = 0; i < 5; i += 1) {
+    const letter = word[i];
+    positional += (frequencies.byPos[i][letter] || 0) / total;
+    if (!seen.has(letter)) {
+      overall += (frequencies.overall[letter] || 0) / total;
+      seen.add(letter);
+    }
+  }
+
+  const uniqueness = seen.size / 5;
+  const coverage = presentLetterCoverageScore(word, presentMinimums);
+
+  return coverage * 10 + positional * 3.2 + overall * 2.4 + uniqueness;
+}
+
+export function rankGuesses(candidates, allowed = ALLOWED_GUESSES, limit = 12, options = {}) {
+  const { history = [] } = options;
   const candidateSet = new Set(candidates);
   const total = candidates.length || 1;
   const frequencies = positionalFrequencies(candidates);
-  const preferCandidates = constrainedState(candidates, frequencies);
+  const { hasKnownLetter, presentMinimums } = extractHistorySignal(history);
+  const preferCandidates = hasKnownLetter || constrainedState(candidates, frequencies);
   const pool = preferCandidates ? candidates : (candidates.length > 2 ? allowed : candidates);
 
   const ranked = pool.map((guess) => {
@@ -134,13 +192,16 @@ export function rankGuesses(candidates, allowed = ALLOWED_GUESSES, limit = 12) {
     const tieBreaker = tieBreakerScore(guess, frequencies);
     const shapeScore = candidateShapeScore(guess, frequencies, total);
     const candidateBias = preferCandidates && isCandidate ? 0.75 + shapeScore * 0.45 : 0;
+    const humanScore = candidateRankingScore(guess, frequencies, total, presentMinimums);
     return {
       word: guess,
       entropy,
       expectedRemaining,
       tieBreaker,
       isCandidate,
-      score: entropy * 1000 - expectedRemaining * (preferCandidates ? 1.35 : 1) + candidateBias + tieBreaker / 100000,
+      score: preferCandidates
+        ? humanScore * 1000 - expectedRemaining * 0.35 + candidateBias + tieBreaker / 100000
+        : entropy * 1000 - expectedRemaining + tieBreaker / 100000,
     };
   });
 
@@ -169,7 +230,7 @@ export function analyzePuzzle(history = [], options = {}) {
   if (analysisCache.has(key)) return analysisCache.get(key);
 
   const candidates = filterCandidates(answers, history);
-  const suggestions = rankGuesses(candidates, allowed, limit);
+  const suggestions = rankGuesses(candidates, allowed, limit, { history });
   const result = { candidates, suggestions, solved: history.at(-1)?.feedback === 'ggggg' };
   analysisCache.set(key, result);
   return result;
