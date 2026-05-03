@@ -133,6 +133,9 @@ h2 { font-size: 1.06rem; }
   padding: 15px 16px;
   margin-bottom: 14px;
   text-transform: lowercase;
+  letter-spacing: 0.18em;
+  font-size: 1.1rem;
+  font-weight: 700;
   outline: none;
 }
 .guess-input:focus { border-color: rgba(122, 244, 178, 0.4); box-shadow: 0 0 0 4px rgba(109, 240, 168, 0.12); }
@@ -195,6 +198,10 @@ h2 { font-size: 1.06rem; }
   font-weight: 700;
 }
 .key--hint { background: #33446f; }
+.key--active {
+  box-shadow: inset 0 0 0 2px rgba(244, 247, 255, 0.9);
+  transform: translateY(-1px);
+}
 .key--wide { min-width: 88px; }
 
 .stats-grid {

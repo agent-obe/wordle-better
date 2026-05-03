@@ -92,26 +92,55 @@ function tieBreakerScore(word, frequencies) {
   return score;
 }
 
+function candidateShapeScore(word, frequencies, total) {
+  if (!total) return 0;
+  let score = 0;
+  for (let i = 0; i < 5; i += 1) {
+    score += (frequencies.byPos[i][word[i]] || 0) / total;
+  }
+  return score;
+}
+
+function constrainedState(candidates, frequencies) {
+  const total = candidates.length;
+  if (total <= 2) return true;
+  if (!total) return false;
+
+  const lockedPositions = frequencies.byPos.filter((bucket) => Object.values(bucket).some((count) => count === total)).length;
+  const averagePositionalCertainty = frequencies.byPos.reduce((sum, bucket) => {
+    const max = Math.max(0, ...Object.values(bucket));
+    return sum + max / total;
+  }, 0) / frequencies.byPos.length;
+
+  return total <= 12
+    || (total <= 24 && lockedPositions >= 1)
+    || (total <= 40 && lockedPositions >= 2)
+    || (total <= 60 && averagePositionalCertainty >= 0.72)
+    || averagePositionalCertainty >= 0.86;
+}
+
 export function rankGuesses(candidates, allowed = ALLOWED_GUESSES, limit = 12) {
   const candidateSet = new Set(candidates);
-  const pool = candidates.length > 2 ? allowed : candidates;
   const total = candidates.length || 1;
   const frequencies = positionalFrequencies(candidates);
+  const preferCandidates = constrainedState(candidates, frequencies);
+  const pool = preferCandidates ? candidates : (candidates.length > 2 ? allowed : candidates);
 
   const ranked = pool.map((guess) => {
     const distribution = patternDistribution(guess, candidates);
     const entropy = entropyFromDistribution(distribution, total);
     const expectedRemaining = [...distribution.values()].reduce((sum, count) => sum + (count * count) / total, 0);
     const isCandidate = candidateSet.has(guess);
-    const candidateBonus = isCandidate ? 0.2 : 0;
     const tieBreaker = tieBreakerScore(guess, frequencies);
+    const shapeScore = candidateShapeScore(guess, frequencies, total);
+    const candidateBias = preferCandidates && isCandidate ? 0.75 + shapeScore * 0.45 : 0;
     return {
       word: guess,
       entropy,
       expectedRemaining,
       tieBreaker,
       isCandidate,
-      score: entropy * 1000 - expectedRemaining + candidateBonus + tieBreaker / 100000,
+      score: entropy * 1000 - expectedRemaining * (preferCandidates ? 1.35 : 1) + candidateBias + tieBreaker / 100000,
     };
   });
 
