@@ -1,9 +1,0 @@
-{
-  "name": "wordle-better-verify",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node test.mjs",
-    "build": "node build.mjs"
-  }
-}
