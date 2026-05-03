@@ -31,20 +31,23 @@
     </div>`}function I(){return s.history.length?s.history.map(F).join(""):'<div class="empty-state">No guesses yet.</div>'}function O(){d.innerHTML=`
     <main class="shell shell--minimal">
       <section id="hero-suggestion"></section>
-      <section id="suggestions"></section>
       <section class="input-panel">
+        <div class="input-copy">
+          <p class="panel-title">Enter your 5-letter guess</p>
+          <p class="helper helper--micro" id="feedback-helper"></p>
+        </div>
         <div class="input-row">
           <input id="guess-input" class="guess-input" maxlength="5" placeholder="slate" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Guess" />
-          <div class="tile-row tile-row--interactive" id="draft-tiles"></div>
-          <button class="primary" data-action="submit">Submit</button>
-          <div class="mini-actions">
-            <button class="ghost ghost--small" data-action="undo">Undo</button>
-            <button class="ghost ghost--small" data-action="reset">Reset</button>
-          </div>
         </div>
-        <p class="helper helper--micro" id="feedback-helper"></p>
+        <div class="tile-row tile-row--interactive tile-row--center" id="draft-tiles"></div>
+        <div class="action-row">
+          <button class="ghost ghost--small" data-action="reset">Reset</button>
+          <button class="primary" data-action="submit">Submit guess</button>
+          <button class="ghost ghost--small" data-action="undo">Undo</button>
+        </div>
         <div class="status-line" id="status-badge"></div>
       </section>
+      <section id="suggestions"></section>
       <details class="history-details">
         <summary>
           <span>History</span>
