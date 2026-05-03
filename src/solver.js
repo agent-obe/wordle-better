@@ -8,6 +8,8 @@ export const FEEDBACK = {
   CORRECT: 'g',
 };
 
+const analysisCache = new Map();
+
 export function normalizeWord(value = '') {
   return value.trim().toLowerCase().replace(/[^a-z]/g, '').slice(0, 5);
 }
@@ -91,6 +93,7 @@ function tieBreakerScore(word, frequencies) {
 }
 
 export function rankGuesses(candidates, allowed = ALLOWED_GUESSES, limit = 12) {
+  const candidateSet = new Set(candidates);
   const pool = candidates.length > 2 ? allowed : candidates;
   const total = candidates.length || 1;
   const frequencies = positionalFrequencies(candidates);
@@ -99,14 +102,15 @@ export function rankGuesses(candidates, allowed = ALLOWED_GUESSES, limit = 12) {
     const distribution = patternDistribution(guess, candidates);
     const entropy = entropyFromDistribution(distribution, total);
     const expectedRemaining = [...distribution.values()].reduce((sum, count) => sum + (count * count) / total, 0);
-    const candidateBonus = candidates.includes(guess) ? 0.2 : 0;
+    const isCandidate = candidateSet.has(guess);
+    const candidateBonus = isCandidate ? 0.2 : 0;
     const tieBreaker = tieBreakerScore(guess, frequencies);
     return {
       word: guess,
       entropy,
       expectedRemaining,
       tieBreaker,
-      isCandidate: candidates.includes(guess),
+      isCandidate,
       score: entropy * 1000 - expectedRemaining + candidateBonus + tieBreaker / 100000,
     };
   });
@@ -124,4 +128,24 @@ export function summarizeSuggestion(entry, candidateCount) {
 export function pickDailyAnswer(seed = Date.now()) {
   const index = Math.abs(Math.floor(seed / 86400000)) % ANSWERS.length;
   return ANSWERS[index];
+}
+
+export function createHistoryKey(history = []) {
+  return history.map(({ guess, feedback }) => `${guess}:${feedback}`).join('|') || 'root';
+}
+
+export function analyzePuzzle(history = [], options = {}) {
+  const { limit = 12, allowed = ALLOWED_GUESSES, answers = ANSWERS } = options;
+  const key = `${createHistoryKey(history)}::${limit}`;
+  if (analysisCache.has(key)) return analysisCache.get(key);
+
+  const candidates = filterCandidates(answers, history);
+  const suggestions = rankGuesses(candidates, allowed, limit);
+  const result = { candidates, suggestions, solved: history.at(-1)?.feedback === 'ggggg' };
+  analysisCache.set(key, result);
+  return result;
+}
+
+export function clearAnalysisCache() {
+  analysisCache.clear();
 }

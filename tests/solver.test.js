@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterCandidates, rankGuesses, scoreGuess } from '../src/solver.js';
+import { analyzePuzzle, clearAnalysisCache, createHistoryKey, filterCandidates, rankGuesses, scoreGuess } from '../src/solver.js';
 
 describe('scoreGuess', () => {
   it('handles duplicate letters correctly', () => {
@@ -29,5 +29,20 @@ describe('rankGuesses', () => {
     const ranked = rankGuesses(candidates, ['cigar', 'rebut', 'sissy'], 3);
     expect(ranked[0].isCandidate).toBe(true);
     expect(candidates).toContain(ranked[0].word);
+  });
+});
+
+describe('analysis caching', () => {
+  it('creates stable history keys', () => {
+    expect(createHistoryKey([])).toBe('root');
+    expect(createHistoryKey([{ guess: 'slate', feedback: 'bbygb' }])).toBe('slate:bbygb');
+  });
+
+  it('reuses cached analysis for identical history', () => {
+    clearAnalysisCache();
+    const history = [{ guess: 'cigar', feedback: 'bbbbb' }];
+    const first = analyzePuzzle(history, { limit: 4, answers: ['rebut', 'humph', 'awake'], allowed: ['rebut', 'humph', 'awake'] });
+    const second = analyzePuzzle(history, { limit: 4, answers: ['rebut', 'humph', 'awake'], allowed: ['rebut', 'humph', 'awake'] });
+    expect(second).toBe(first);
   });
 });
